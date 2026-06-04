@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0f6b4d" />
-    <title>Inventory Scanner</title>
+    <title>Uber Catalog Builder</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./styles.css" />
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
@@ -14,20 +14,124 @@
       <header class="topbar">
         <div class="title-block">
           <span class="eyebrow">Uber catalog build</span>
-          <h1>Inventory Scanner</h1>
+          <h1>Catalog Builder</h1>
         </div>
         <div class="top-actions">
           <button class="icon-button" id="settingsBtn" type="button" title="Settings" aria-label="Settings">
             <i data-lucide="settings"></i>
           </button>
-          <button class="icon-button" id="exportBtn" type="button" title="Export CSV" aria-label="Export CSV">
+          <button class="icon-button" id="exportBtn" type="button" title="Export review CSV" aria-label="Export review CSV">
             <i data-lucide="download"></i>
           </button>
         </div>
       </header>
 
-      <main class="scan-layout">
-        <section class="scanner-panel" aria-label="Barcode scanner">
+      <section class="context-bar" aria-label="Batch context">
+        <label>
+          <span>Category</span>
+          <input id="categoryInput" type="text" list="categoryList" autocomplete="off" placeholder="Beer" />
+        </label>
+        <label>
+          <span>Shelf / section</span>
+          <input id="shelfInput" type="text" autocomplete="off" placeholder="Door 1, top shelf" />
+        </label>
+        <label>
+          <span>Default price</span>
+          <input id="priceInput" type="text" inputmode="decimal" autocomplete="off" placeholder="$0.00" />
+        </label>
+        <datalist id="categoryList"></datalist>
+      </section>
+
+      <nav class="mode-tabs" aria-label="Entry modes">
+        <button class="active" id="shelfModeBtn" type="button" data-mode="shelf">
+          <i data-lucide="camera"></i>
+          <span>Shelf Photo</span>
+        </button>
+        <button id="manualModeBtn" type="button" data-mode="manual">
+          <i data-lucide="pencil-line"></i>
+          <span>Manual</span>
+        </button>
+        <button id="upcModeBtn" type="button" data-mode="upc">
+          <i data-lucide="scan-barcode"></i>
+          <span>UPC</span>
+        </button>
+      </nav>
+
+      <main class="workspace">
+        <section class="panel mode-panel active" id="shelfPanel" aria-label="Shelf photo batch">
+          <div class="section-heading">
+            <h2>Shelf Photo Batch</h2>
+            <span class="model-pill">gpt-5.4-mini · low first</span>
+          </div>
+
+          <div class="photo-actions">
+            <input id="shelfPhotoInput" type="file" accept="image/*" capture="environment" multiple hidden />
+            <button class="button primary" id="choosePhotosBtn" type="button">
+              <i data-lucide="camera"></i>
+              <span>Add photos</span>
+            </button>
+            <button class="button quiet" id="clearPhotosBtn" type="button">
+              <i data-lucide="eraser"></i>
+              <span>Clear</span>
+            </button>
+          </div>
+
+          <label class="wide-field">
+            <span>Batch notes</span>
+            <input id="batchNotesInput" type="text" autocomplete="off" placeholder="Optional" />
+          </label>
+
+          <div class="photo-grid" id="photoGrid" aria-label="Selected shelf photos"></div>
+
+          <button class="button secondary full" id="submitBatchBtn" type="button">
+            <i data-lucide="send"></i>
+            <span>Queue photo batch</span>
+          </button>
+        </section>
+
+        <section class="panel mode-panel" id="manualPanel" aria-label="Manual item entry">
+          <div class="section-heading">
+            <h2>Manual Item</h2>
+            <button class="icon-button compact" id="clearManualBtn" type="button" title="Clear manual fields" aria-label="Clear manual fields">
+              <i data-lucide="eraser"></i>
+            </button>
+          </div>
+
+          <div class="field-grid">
+            <label class="wide-field">
+              <span>Item name</span>
+              <input id="manualNameInput" type="text" autocomplete="off" placeholder="Budweiser Lager King Can" />
+            </label>
+            <label>
+              <span>Size / package</span>
+              <input id="manualSizeInput" type="text" autocomplete="off" placeholder="710 mL" />
+            </label>
+            <label>
+              <span>UPC</span>
+              <input id="manualUpcInput" type="text" inputmode="numeric" autocomplete="off" placeholder="Optional" />
+            </label>
+            <label class="wide-field">
+              <span>Image link</span>
+              <input id="manualImageInput" type="url" autocomplete="off" placeholder="Optional" />
+            </label>
+            <label class="wide-field">
+              <span>Notes</span>
+              <input id="manualNotesInput" type="text" autocomplete="off" placeholder="Optional" />
+            </label>
+          </div>
+
+          <button class="button secondary full" id="manualAddBtn" type="button">
+            <i data-lucide="plus"></i>
+            <span>Add manual row</span>
+          </button>
+        </section>
+
+        <section class="panel mode-panel" id="upcPanel" aria-label="UPC scanner">
+          <div class="section-heading">
+            <h2>UPC Fallback</h2>
+            <span class="status-pill neutral" id="scannerStatus">Camera idle</span>
+          </div>
+
           <div class="video-shell">
             <video id="preview" muted playsinline></video>
             <div class="reticle" aria-hidden="true">
@@ -45,94 +149,46 @@
               <i data-lucide="square"></i>
               <span>Stop</span>
             </button>
-            <button class="button voice" id="voiceBtn" type="button" aria-pressed="false">
+            <button class="button secondary" id="voiceBtn" type="button" aria-pressed="false">
               <i data-lucide="mic"></i>
               <span>Voice</span>
             </button>
-            <button class="button toggle active" id="autosaveBtn" type="button" aria-pressed="true">
-              <i data-lucide="send"></i>
-              <span>Auto</span>
-            </button>
           </div>
 
+          <label class="wide-field">
+            <span>UPC item override</span>
+            <input id="upcNameInput" type="text" autocomplete="off" placeholder="Optional" />
+          </label>
+        </section>
+
+        <section class="panel feed-panel" aria-label="Review queue">
+          <div class="section-heading">
+            <h2>Review Queue</h2>
+            <span class="count-pill" id="itemCount">0 rows</span>
+          </div>
           <div class="status-strip">
-            <span class="status-pill ready" id="scannerStatus">Ready</span>
             <span class="status-pill neutral" id="sheetStatus">Sheet not connected</span>
-          </div>
-        </section>
-
-        <section class="context-panel" aria-label="Item context">
-          <div class="section-heading">
-            <h2>Current Item</h2>
-            <button class="icon-button compact" id="clearCurrentBtn" type="button" title="Clear item fields" aria-label="Clear item fields">
-              <i data-lucide="eraser"></i>
-            </button>
-          </div>
-
-          <div class="field-grid">
-            <label>
-              <span>Category</span>
-              <input id="categoryInput" type="text" list="categoryList" autocomplete="off" placeholder="Beverages" />
-            </label>
-            <label>
-              <span>Subcategory</span>
-              <input id="subcategoryInput" type="text" autocomplete="off" placeholder="Energy drinks" />
-            </label>
-            <label>
-              <span>Price</span>
-              <input id="priceInput" type="text" inputmode="decimal" autocomplete="off" placeholder="$0.00" />
-            </label>
-            <label>
-              <span>Item name</span>
-              <input id="itemNameInput" type="text" autocomplete="off" placeholder="Optional override" />
-            </label>
-            <label class="wide-field">
-              <span>Photo link</span>
-              <input id="photoLinkInput" type="url" autocomplete="off" placeholder="Optional direct image URL" />
-            </label>
-            <label class="wide-field">
-              <span>Notes</span>
-              <input id="notesInput" type="text" autocomplete="off" placeholder="Optional" />
-            </label>
-          </div>
-
-          <datalist id="categoryList"></datalist>
-          <div class="chip-row" id="categoryChips" aria-label="Category shortcuts"></div>
-          <div class="chip-row subchips" id="subcategoryChips" aria-label="Subcategory shortcuts"></div>
-
-          <div class="voice-log" id="voiceLog" aria-live="polite">Voice idle</div>
-
-          <div class="manual-actions">
-            <button class="button secondary" id="manualAddBtn" type="button">
-              <i data-lucide="plus"></i>
-              <span>Add item</span>
-            </button>
-            <button class="button quiet" id="clearFeedBtn" type="button">
-              <i data-lucide="trash-2"></i>
-              <span>Clear feed</span>
-            </button>
-          </div>
-        </section>
-
-        <section class="feed-panel" aria-label="Live feed">
-          <div class="section-heading">
-            <h2>Live Feed</h2>
-            <span class="count-pill" id="itemCount">0 items</span>
+            <span class="status-pill ready" id="workflowStatus">Ready</span>
           </div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Time</th>
-                  <th>UPC</th>
-                  <th>Item</th>
+                  <th>Type</th>
+                  <th>Item / Batch</th>
                   <th>Category</th>
-                  <th>Price</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody id="feedBody"></tbody>
             </table>
+          </div>
+          <div class="feed-actions">
+            <button class="button quiet" id="clearFeedBtn" type="button">
+              <i data-lucide="trash-2"></i>
+              <span>Clear local feed</span>
+            </button>
           </div>
         </section>
       </main>
@@ -141,7 +197,7 @@
     <dialog class="settings-dialog" id="settingsDialog">
       <form method="dialog">
         <div class="dialog-head">
-          <h2>Sheet Settings</h2>
+          <h2>Workflow Settings</h2>
           <button class="icon-button compact" value="cancel" type="submit" title="Close" aria-label="Close">
             <i data-lucide="x"></i>
           </button>
@@ -152,7 +208,7 @@
         </label>
         <label>
           <span>Shared secret</span>
-          <input id="secretInput" type="text" autocomplete="off" placeholder="Optional but recommended" />
+          <input id="secretInput" type="text" autocomplete="off" placeholder="Optional" />
         </label>
         <label>
           <span>Store name</span>

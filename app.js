@@ -1,63 +1,78 @@
 import { BrowserCodeReader, BrowserMultiFormatReader } from "https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm";
 
-const STORAGE_KEY = "uberInventoryScanner.v1";
+const STORAGE_KEY = "uberCatalogBuilder.v2";
 const SCAN_COOLDOWN_MS = 2200;
+const PHOTO_MAX_EDGE = 1600;
+const PHOTO_QUALITY = 0.72;
+const PARSER_MODEL = "gpt-5.4-mini";
 
 const categoryMap = {
+  Beer: ["Domestic Beer", "Imported Beer", "Craft Beer", "Lager", "Light Beer", "King Cans"],
+  Wine: ["Red Wine", "White Wine", "Rose", "Sparkling Wine"],
   Beverages: ["Water", "Sparkling Water", "Soda", "Juice", "Energy Drinks", "Sports Drinks", "Coffee & Tea"],
   "Milk & Dairy": ["Milk", "Creamers", "Yogurt", "Cheese", "Butter & Eggs"],
-  Beer: ["Domestic Beer", "Imported Beer", "Craft Beer", "Lager", "IPA", "Light Beer", "Non-Alcoholic Beer"],
-  Wine: ["Red Wine", "White Wine", "Rose", "Sparkling Wine", "Coolers"],
-  "Ready-to-Drink": ["Hard Seltzer", "Cider", "Premixed Cocktails"],
   Snacks: ["Chips", "Crackers", "Popcorn", "Pretzels", "Nuts & Seeds", "Snack Cakes"],
-  "Candy & Chocolate": ["Chocolate", "Gummies", "Mints & Gum", "Hard Candy", "Novelty Candy"],
-  Pantry: ["Instant Noodles", "Cereal", "Spreads", "Condiments", "Sauces", "Canned Goods", "Baking"],
-  Frozen: ["Ice Cream", "Frozen Meals", "Frozen Snacks", "Frozen Desserts"],
-  "Ice Cream": ["Pints", "Bars & Sandwiches", "Cones", "Multipacks"],
-  "Bread & Bakery": ["Cookies", "Donuts", "Pastries", "Bread", "Brownies"],
-  Household: ["Paper Goods", "Garbage Bags", "Kitchen Supplies", "Batteries", "Light Bulbs"],
-  Cleaning: ["All-Purpose Cleaners", "Dish Soap", "Air Fresheners", "Pest Control", "Bathroom Cleaners"],
+  "Candy & Chocolate": ["Chocolate", "Gummies", "Mints & Gum", "Hard Candy"],
+  Pantry: ["Instant Noodles", "Cereal", "Spreads", "Condiments", "Canned Goods"],
+  Frozen: ["Ice Cream", "Frozen Meals", "Frozen Snacks"],
+  Household: ["Paper Goods", "Garbage Bags", "Kitchen Supplies", "Batteries"],
+  Cleaning: ["All-Purpose Cleaners", "Dish Soap", "Air Fresheners", "Bathroom Cleaners"],
   Laundry: ["Detergent", "Fabric Softener", "Dryer Sheets", "Stain Removers"],
-  "Health & Wellness": ["Pain Relief", "Cold & Flu", "Vitamins", "First Aid", "Digestive Health"],
+  "Health & Wellness": ["Pain Relief", "Cold & Flu", "Vitamins", "First Aid"],
   "Personal Care": ["Oral Care", "Deodorant", "Hair Care", "Skin Care"],
-  "Baby & Kids": ["Diapers", "Wipes", "Baby Food"],
   Pet: ["Cat Food", "Dog Food", "Treats", "Litter"]
 };
 
-const headers = [
-  "Item Name",
+const reviewHeaders = [
+  "Entry Type",
+  "Photo File",
+  "Shelf Position",
+  "Detected Item Name",
+  "Corrected Item Name",
+  "Detected Size/Package",
+  "Corrected Size/Package",
   "Item Price",
   "UPC",
+  "Category",
+  "Status",
   "Image Link",
-  "Category"
+  "Notes"
 ];
 
 const els = {
+  settingsBtn: document.getElementById("settingsBtn"),
+  exportBtn: document.getElementById("exportBtn"),
+  categoryInput: document.getElementById("categoryInput"),
+  shelfInput: document.getElementById("shelfInput"),
+  priceInput: document.getElementById("priceInput"),
+  categoryList: document.getElementById("categoryList"),
+  modeButtons: Array.from(document.querySelectorAll("[data-mode]")),
+  modePanels: Array.from(document.querySelectorAll(".mode-panel")),
+  shelfPhotoInput: document.getElementById("shelfPhotoInput"),
+  choosePhotosBtn: document.getElementById("choosePhotosBtn"),
+  clearPhotosBtn: document.getElementById("clearPhotosBtn"),
+  photoGrid: document.getElementById("photoGrid"),
+  batchNotesInput: document.getElementById("batchNotesInput"),
+  submitBatchBtn: document.getElementById("submitBatchBtn"),
+  clearManualBtn: document.getElementById("clearManualBtn"),
+  manualNameInput: document.getElementById("manualNameInput"),
+  manualSizeInput: document.getElementById("manualSizeInput"),
+  manualUpcInput: document.getElementById("manualUpcInput"),
+  manualImageInput: document.getElementById("manualImageInput"),
+  manualNotesInput: document.getElementById("manualNotesInput"),
+  manualAddBtn: document.getElementById("manualAddBtn"),
   video: document.getElementById("preview"),
   cameraMessage: document.getElementById("cameraMessage"),
+  scannerStatus: document.getElementById("scannerStatus"),
   startScanBtn: document.getElementById("startScanBtn"),
   stopScanBtn: document.getElementById("stopScanBtn"),
   voiceBtn: document.getElementById("voiceBtn"),
-  autosaveBtn: document.getElementById("autosaveBtn"),
-  scannerStatus: document.getElementById("scannerStatus"),
+  upcNameInput: document.getElementById("upcNameInput"),
   sheetStatus: document.getElementById("sheetStatus"),
-  categoryInput: document.getElementById("categoryInput"),
-  subcategoryInput: document.getElementById("subcategoryInput"),
-  priceInput: document.getElementById("priceInput"),
-  itemNameInput: document.getElementById("itemNameInput"),
-  photoLinkInput: document.getElementById("photoLinkInput"),
-  notesInput: document.getElementById("notesInput"),
-  categoryList: document.getElementById("categoryList"),
-  categoryChips: document.getElementById("categoryChips"),
-  subcategoryChips: document.getElementById("subcategoryChips"),
-  voiceLog: document.getElementById("voiceLog"),
-  manualAddBtn: document.getElementById("manualAddBtn"),
-  clearCurrentBtn: document.getElementById("clearCurrentBtn"),
-  clearFeedBtn: document.getElementById("clearFeedBtn"),
-  settingsBtn: document.getElementById("settingsBtn"),
-  exportBtn: document.getElementById("exportBtn"),
+  workflowStatus: document.getElementById("workflowStatus"),
   feedBody: document.getElementById("feedBody"),
   itemCount: document.getElementById("itemCount"),
+  clearFeedBtn: document.getElementById("clearFeedBtn"),
   settingsDialog: document.getElementById("settingsDialog"),
   webhookUrlInput: document.getElementById("webhookUrlInput"),
   secretInput: document.getElementById("secretInput"),
@@ -67,19 +82,19 @@ const els = {
 };
 
 const state = {
+  activeMode: "shelf",
   rows: [],
+  photos: [],
   settings: {
     webhookUrl: "",
     secret: "",
     storeName: ""
   },
-  autosave: true,
   scanning: false,
   voiceActive: false,
   scanControls: null,
   codeReader: null,
   recognition: null,
-  customCategories: {},
   recentScans: new Map(),
   clearConfirmUntil: 0
 };
@@ -88,74 +103,117 @@ function init() {
   loadState();
   const importedSettings = importSettingsFromUrl();
   renderCategories();
-  renderRows();
   bindEvents();
-  hydrateFields();
+  hydrateDraft();
+  setMode(state.activeMode || "shelf");
+  renderPhotos();
+  renderRows();
   if (importedSettings) persistState();
   refreshSheetStatus();
-  refreshAutosave();
   refreshIcons();
 }
 
 function bindEvents() {
+  els.settingsBtn.addEventListener("click", openSettings);
+  els.exportBtn.addEventListener("click", exportReviewCsv);
+  els.modeButtons.forEach((button) => button.addEventListener("click", () => setMode(button.dataset.mode)));
+
+  els.categoryInput.addEventListener("input", persistState);
+  els.shelfInput.addEventListener("input", persistState);
+  els.priceInput.addEventListener("input", persistState);
+  els.batchNotesInput.addEventListener("input", persistState);
+
+  els.choosePhotosBtn.addEventListener("click", () => els.shelfPhotoInput.click());
+  els.shelfPhotoInput.addEventListener("change", addSelectedPhotos);
+  els.clearPhotosBtn.addEventListener("click", clearPhotos);
+  els.submitBatchBtn.addEventListener("click", queueShelfBatch);
+
+  [
+    els.manualNameInput,
+    els.manualSizeInput,
+    els.manualUpcInput,
+    els.manualImageInput,
+    els.manualNotesInput,
+    els.upcNameInput
+  ].forEach((input) => input.addEventListener("input", persistState));
+
+  els.clearManualBtn.addEventListener("click", clearManualFields);
+  els.manualAddBtn.addEventListener("click", addManualRow);
   els.startScanBtn.addEventListener("click", startScanner);
   els.stopScanBtn.addEventListener("click", stopScanner);
   els.voiceBtn.addEventListener("click", toggleVoice);
-  els.autosaveBtn.addEventListener("click", toggleAutosave);
-  els.manualAddBtn.addEventListener("click", addManualItem);
-  els.clearCurrentBtn.addEventListener("click", clearCurrentFields);
   els.clearFeedBtn.addEventListener("click", clearFeed);
-  els.settingsBtn.addEventListener("click", openSettings);
-  els.exportBtn.addEventListener("click", exportCsv);
   els.saveSettingsBtn.addEventListener("click", saveSettingsFromDialog);
   els.testSheetBtn.addEventListener("click", sendTestRow);
-  els.categoryInput.addEventListener("input", () => {
-    renderSubcategoryChips(els.categoryInput.value);
-    persistState();
-  });
-
-  [
-    els.subcategoryInput,
-    els.priceInput,
-    els.itemNameInput,
-    els.photoLinkInput,
-    els.notesInput
-  ].forEach((input) => input.addEventListener("input", persistState));
-}
-
-function hydrateFields() {
-  const draft = getSaved().draft || {};
-  els.categoryInput.value = draft.category || "";
-  els.subcategoryInput.value = draft.subcategory || "";
-  els.priceInput.value = draft.price || "";
-  els.itemNameInput.value = draft.itemName || "";
-  els.photoLinkInput.value = draft.photoLink || "";
-  els.notesInput.value = draft.notes || "";
-  renderSubcategoryChips(els.categoryInput.value);
 }
 
 function loadState() {
   const saved = getSaved();
+  state.activeMode = saved.activeMode || "shelf";
   state.rows = Array.isArray(saved.rows) ? saved.rows : [];
   state.settings = {
     webhookUrl: saved.settings?.webhookUrl || "",
     secret: saved.settings?.secret || "",
     storeName: saved.settings?.storeName || ""
   };
-  state.customCategories = saved.customCategories && typeof saved.customCategories === "object"
-    ? saved.customCategories
-    : {};
-  state.autosave = saved.autosave !== false;
+}
+
+function hydrateDraft() {
+  const draft = getSaved().draft || {};
+  els.categoryInput.value = draft.category || "";
+  els.shelfInput.value = draft.shelf || "";
+  els.priceInput.value = draft.price || "";
+  els.batchNotesInput.value = draft.batchNotes || "";
+  els.manualNameInput.value = draft.manualName || "";
+  els.manualSizeInput.value = draft.manualSize || "";
+  els.manualUpcInput.value = draft.manualUpc || "";
+  els.manualImageInput.value = draft.manualImage || "";
+  els.manualNotesInput.value = draft.manualNotes || "";
+  els.upcNameInput.value = draft.upcName || "";
+}
+
+function getSaved() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function persistState() {
+  const draft = {
+    category: cleanLabel(els.categoryInput.value),
+    shelf: cleanLabel(els.shelfInput.value),
+    price: els.priceInput.value.trim(),
+    batchNotes: cleanLabel(els.batchNotesInput.value),
+    manualName: cleanLabel(els.manualNameInput.value),
+    manualSize: cleanLabel(els.manualSizeInput.value),
+    manualUpc: cleanLabel(els.manualUpcInput.value),
+    manualImage: els.manualImageInput.value.trim(),
+    manualNotes: cleanLabel(els.manualNotesInput.value),
+    upcName: cleanLabel(els.upcNameInput.value)
+  };
+
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      activeMode: state.activeMode,
+      rows: state.rows.slice(0, 500),
+      settings: state.settings,
+      draft
+    })
+  );
 }
 
 function importSettingsFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const webhookUrl = params.get("webhook") || params.get("webhookUrl");
+  const workflow = params.get("workflow");
   const secret = params.get("secret");
   const storeName = params.get("store") || params.get("storeName");
   let imported = false;
 
-  if (webhookUrl) {
+  if (webhookUrl && workflow === "review-v2") {
     state.settings.webhookUrl = webhookUrl.trim();
     imported = true;
   }
@@ -176,141 +234,235 @@ function importSettingsFromUrl() {
   return imported;
 }
 
-function getSaved() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function persistState() {
-  const draft = {
-    category: els.categoryInput.value.trim(),
-    subcategory: els.subcategoryInput.value.trim(),
-    price: els.priceInput.value.trim(),
-    itemName: els.itemNameInput.value.trim(),
-    photoLink: els.photoLinkInput.value.trim(),
-    notes: els.notesInput.value.trim()
-  };
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      rows: state.rows.slice(0, 500),
-      settings: state.settings,
-      customCategories: state.customCategories,
-      autosave: state.autosave,
-      draft
-    })
-  );
-}
-
 function renderCategories() {
   els.categoryList.innerHTML = "";
-  els.categoryChips.innerHTML = "";
-
-  getCategoryNames().forEach((category) => {
+  Object.keys(categoryMap).sort((a, b) => a.localeCompare(b)).forEach((category) => {
     const option = document.createElement("option");
     option.value = category;
     els.categoryList.appendChild(option);
-
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.textContent = category;
-    chip.addEventListener("click", () => {
-      els.categoryInput.value = category;
-      renderSubcategoryChips(category);
-      markActiveCategory(category);
-      persistState();
-    });
-    els.categoryChips.appendChild(chip);
   });
 }
 
-function renderSubcategoryChips(category) {
-  const trimmed = cleanLabel(category);
-  const key = getCategoryNames().find((name) => name.toLowerCase() === trimmed.toLowerCase());
-  const subcategories = key ? getSubcategories(key) : [];
-  els.subcategoryChips.innerHTML = "";
-  markActiveCategory(trimmed);
-
-  subcategories.forEach((subcategory) => {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.textContent = subcategory;
-    chip.addEventListener("click", () => {
-      els.subcategoryInput.value = subcategory;
-      persistState();
-    });
-    els.subcategoryChips.appendChild(chip);
-  });
-}
-
-function getCategoryNames() {
-  const baseNames = Object.keys(categoryMap);
-  const customNames = Object.keys(state.customCategories).filter(
-    (category) => !baseNames.some((baseCategory) => baseCategory.toLowerCase() === category.toLowerCase())
-  );
-  return [...baseNames, ...customNames].sort((a, b) => a.localeCompare(b));
-}
-
-function getSubcategories(category) {
-  const baseKey = Object.keys(categoryMap).find((name) => name.toLowerCase() === category.toLowerCase());
-  if (baseKey) return categoryMap[baseKey];
-
-  const customKey = Object.keys(state.customCategories).find((name) => name.toLowerCase() === category.toLowerCase());
-  return customKey ? state.customCategories[customKey] : [];
-}
-
-function setCategory(value, options = {}) {
-  const category = titleCase(value);
-  if (!category) return;
-
-  const existing = getCategoryNames().find((name) => name.toLowerCase() === category.toLowerCase());
-  if (!existing && !state.customCategories[category]) {
-    state.customCategories[category] = [];
-    renderCategories();
-  }
-
-  els.categoryInput.value = existing || category;
-  if (options.clearSubcategory) els.subcategoryInput.value = "";
-  renderSubcategoryChips(els.categoryInput.value);
+function setMode(mode) {
+  state.activeMode = mode || "shelf";
+  els.modeButtons.forEach((button) => button.classList.toggle("active", button.dataset.mode === state.activeMode));
+  els.modePanels.forEach((panel) => panel.classList.toggle("active", panel.id === `${state.activeMode}Panel`));
+  if (state.activeMode !== "upc") stopScanner();
   persistState();
+  refreshIcons();
 }
 
-function setSubcategory(value) {
-  const subcategory = titleCase(value);
-  if (!subcategory) return;
+async function addSelectedPhotos(event) {
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
 
-  els.subcategoryInput.value = subcategory;
-  const category = cleanLabel(els.categoryInput.value);
-  if (category && !getSubcategories(category).some((name) => name.toLowerCase() === subcategory.toLowerCase())) {
-    const isBaseCategory = Object.keys(categoryMap).some((name) => name.toLowerCase() === category.toLowerCase());
-    if (!isBaseCategory) {
-      state.customCategories[category] = Array.from(new Set([...(state.customCategories[category] || []), subcategory]));
+  setStatus(els.workflowStatus, "Preparing photos", "warn");
+  for (const file of files) {
+    try {
+      const photo = await compressPhoto(file);
+      state.photos.push(photo);
+    } catch (error) {
+      setStatus(els.workflowStatus, shortError(error), "error");
     }
   }
+
+  els.shelfPhotoInput.value = "";
+  renderPhotos();
+  setStatus(els.workflowStatus, `${state.photos.length} photo${state.photos.length === 1 ? "" : "s"} ready`, "ready");
+}
+
+async function compressPhoto(file) {
+  const dataUrl = await readAsDataUrl(file);
+  const image = await loadImage(dataUrl);
+  const scale = Math.min(1, PHOTO_MAX_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, width, height);
+  const compressed = canvas.toDataURL("image/jpeg", PHOTO_QUALITY);
+
+  return {
+    id: makeId(),
+    name: safeFileName(file.name || `shelf-${Date.now()}.jpg`),
+    mimeType: "image/jpeg",
+    dataUrl: compressed,
+    originalSize: file.size,
+    compressedSize: Math.round((compressed.length * 3) / 4),
+    width,
+    height
+  };
+}
+
+function readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Could not read photo"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Could not load photo"));
+    image.src = src;
+  });
+}
+
+function renderPhotos() {
+  els.photoGrid.innerHTML = "";
+
+  if (!state.photos.length) {
+    const empty = document.createElement("div");
+    empty.className = "photo-empty";
+    empty.textContent = "No photos selected";
+    els.photoGrid.appendChild(empty);
+    return;
+  }
+
+  state.photos.forEach((photo) => {
+    const card = document.createElement("article");
+    card.className = "photo-card";
+    card.innerHTML = `
+      <img src="${photo.dataUrl}" alt="" />
+      <div>
+        <strong>${escapeHtml(photo.name)}</strong>
+        <span>${photo.width}x${photo.height}</span>
+      </div>
+      <button type="button" class="icon-button compact" aria-label="Remove photo" title="Remove photo">
+        <i data-lucide="x"></i>
+      </button>
+    `;
+    card.querySelector("button").addEventListener("click", () => removePhoto(photo.id));
+    els.photoGrid.appendChild(card);
+  });
+  refreshIcons();
+}
+
+function removePhoto(id) {
+  state.photos = state.photos.filter((photo) => photo.id !== id);
+  renderPhotos();
+  setStatus(els.workflowStatus, `${state.photos.length} photo${state.photos.length === 1 ? "" : "s"} ready`, "ready");
+}
+
+function clearPhotos() {
+  state.photos = [];
+  renderPhotos();
+  setStatus(els.workflowStatus, "Photos cleared", "neutral");
+}
+
+async function queueShelfBatch() {
+  if (!state.photos.length) {
+    setStatus(els.workflowStatus, "Add photos first", "warn");
+    return;
+  }
+
+  const category = cleanLabel(els.categoryInput.value);
+  if (!category) {
+    setStatus(els.workflowStatus, "Category needed", "warn");
+    els.categoryInput.focus();
+    return;
+  }
+
+  const batchId = `batch-${new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14)}`;
+  const row = makeReviewRow({
+    entryType: "Shelf Photo",
+    batchId,
+    itemName: `${state.photos.length} shelf photo${state.photos.length === 1 ? "" : "s"}`,
+    category,
+    shelfPosition: cleanLabel(els.shelfInput.value),
+    status: "Needs AI Parse",
+    confidence: "Queued",
+    notes: cleanLabel(els.batchNotesInput.value)
+  });
+
+  prependRow(row);
+  setStatus(els.workflowStatus, "Sending photo batch", "warn");
+  await postWorkflow({
+    action: "captureBatch",
+    batch: {
+      id: batchId,
+      category,
+      shelfPosition: cleanLabel(els.shelfInput.value),
+      itemPrice: normalizePrice(els.priceInput.value),
+      notes: cleanLabel(els.batchNotesInput.value),
+      parserModel: PARSER_MODEL,
+      parserMode: "low-detail-first",
+      photos: state.photos.map(({ id, name, mimeType, dataUrl, width, height, compressedSize }) => ({
+        id,
+        name,
+        mimeType,
+        dataUrl,
+        width,
+        height,
+        compressedSize
+      }))
+    }
+  });
+
+  row.status = "Queued";
+  updateRow(row);
+  clearPhotos();
+  els.batchNotesInput.value = "";
   persistState();
 }
 
-function markActiveCategory(category) {
-  Array.from(els.categoryChips.children).forEach((chip) => {
-    chip.classList.toggle("active", chip.textContent.toLowerCase() === category.toLowerCase());
+function addManualRow() {
+  const name = cleanLabel(els.manualNameInput.value);
+  const size = cleanLabel(els.manualSizeInput.value);
+  const notes = cleanLabel(els.manualNotesInput.value);
+
+  if (!name && !notes) {
+    setStatus(els.workflowStatus, "Name or note needed", "warn");
+    els.manualNameInput.focus();
+    return;
+  }
+
+  const row = makeReviewRow({
+    entryType: "Manual",
+    itemName: name,
+    size,
+    price: normalizePrice(els.priceInput.value),
+    upc: normalizeBarcode(els.manualUpcInput.value).upc,
+    imageLink: els.manualImageInput.value.trim(),
+    category: cleanLabel(els.categoryInput.value),
+    shelfPosition: cleanLabel(els.shelfInput.value),
+    status: name ? "Needs Review" : "Needs Details",
+    confidence: "Manual entry",
+    notes
   });
+
+  prependRow(row);
+  postReviewEntry(row);
+  clearManualFields();
+}
+
+function clearManualFields() {
+  els.manualNameInput.value = "";
+  els.manualSizeInput.value = "";
+  els.manualUpcInput.value = "";
+  els.manualImageInput.value = "";
+  els.manualNotesInput.value = "";
+  persistState();
 }
 
 async function startScanner() {
   if (state.scanning) return;
 
   if (!window.isSecureContext) {
-    setStatus(els.scannerStatus, "Camera needs HTTPS", "warn");
+    setStatus(els.scannerStatus, "HTTPS needed", "warn");
     els.cameraMessage.textContent = "Use HTTPS on iPhone";
   }
 
   try {
     state.codeReader = state.codeReader || new BrowserMultiFormatReader();
     state.scanning = true;
-    setStatus(els.scannerStatus, "Starting camera", "warn");
+    setStatus(els.scannerStatus, "Starting", "warn");
     els.cameraMessage.textContent = "Starting camera";
 
     const constraints = {
@@ -323,19 +475,11 @@ async function startScanner() {
     };
 
     if (typeof state.codeReader.decodeFromConstraints === "function") {
-      state.scanControls = await state.codeReader.decodeFromConstraints(
-        constraints,
-        els.video,
-        handleDecodeResult
-      );
+      state.scanControls = await state.codeReader.decodeFromConstraints(constraints, els.video, handleDecodeResult);
     } else {
       const devices = await BrowserCodeReader.listVideoInputDevices();
       const rearCamera = devices.find((device) => /back|rear|environment/i.test(device.label));
-      state.scanControls = await state.codeReader.decodeFromVideoDevice(
-        rearCamera?.deviceId,
-        els.video,
-        handleDecodeResult
-      );
+      state.scanControls = await state.codeReader.decodeFromVideoDevice(rearCamera?.deviceId, els.video, handleDecodeResult);
     }
 
     setStatus(els.scannerStatus, "Scanning", "ready");
@@ -353,8 +497,8 @@ function stopScanner() {
   }
   state.scanControls = null;
   state.scanning = false;
-  setStatus(els.scannerStatus, "Stopped", "neutral");
-  els.cameraMessage.textContent = "Camera idle";
+  if (els.scannerStatus) setStatus(els.scannerStatus, "Camera idle", "neutral");
+  if (els.cameraMessage) els.cameraMessage.textContent = "Camera idle";
 }
 
 function handleDecodeResult(result) {
@@ -376,95 +520,37 @@ async function handleScan(rawText, format) {
   beep();
   setStatus(els.scannerStatus, `Scanned ${code.upc}`, "ready");
 
-  const item = makeItem({
+  const row = makeReviewRow({
+    entryType: "UPC Scan",
+    itemName: cleanLabel(els.upcNameInput.value),
+    category: cleanLabel(els.categoryInput.value),
+    shelfPosition: cleanLabel(els.shelfInput.value),
+    price: normalizePrice(els.priceInput.value),
     upc: code.upc,
-    barcodeRaw: code.raw,
-    barcodeFormat: format || code.kind || ""
+    status: "Needs Review",
+    confidence: format || code.kind || "UPC captured",
+    notes: "UPC fallback"
   });
 
-  item.status = "Looking up";
-  prependRow(item);
-  clearPerItemFields();
+  prependRow(row);
 
   try {
     const lookup = await lookupProduct(code.upc, code.raw);
-    applyLookup(item, lookup);
+    if (lookup) {
+      if (!row.itemName && lookup.productName) row.itemName = lookup.productName;
+      if (!row.size && lookup.size) row.size = lookup.size;
+      if (!row.imageLink && lookup.photoLink) row.imageLink = lookup.photoLink;
+      row.notes = joinNotes(row.notes, lookup.brand || lookup.source || "");
+      updateRow(row);
+    }
   } catch (error) {
-    item.lookupSource = "Lookup failed";
-    item.notes = joinNotes(item.notes, shortError(error));
+    row.notes = joinNotes(row.notes, shortError(error));
+    updateRow(row);
   }
 
-  finalizeItem(item);
-  updateRow(item);
+  postReviewEntry(row);
+  els.upcNameInput.value = "";
   persistState();
-
-  if (state.autosave) {
-    await postItem(item);
-  }
-}
-
-function makeItem(overrides = {}) {
-  const scannedAt = new Date();
-  return {
-    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-    scannedAt: scannedAt.toISOString(),
-    scannedTime: scannedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    upc: "",
-    barcodeRaw: "",
-    barcodeFormat: "",
-    itemName: cleanLabel(els.itemNameInput.value),
-    brand: "",
-    size: "",
-    category: cleanLabel(els.categoryInput.value),
-    subcategory: cleanLabel(els.subcategoryInput.value),
-    price: normalizePrice(els.priceInput.value),
-    photoLink: els.photoLinkInput.value.trim(),
-    lookupSource: "",
-    confidence: "",
-    needsReview: "",
-    notes: cleanLabel(els.notesInput.value),
-    status: "Ready",
-    storeName: state.settings.storeName,
-    ...overrides
-  };
-}
-
-function clearPerItemFields() {
-  els.priceInput.value = "";
-  els.itemNameInput.value = "";
-  els.photoLinkInput.value = "";
-  els.notesInput.value = "";
-  persistState();
-}
-
-function clearCurrentFields() {
-  els.priceInput.value = "";
-  els.itemNameInput.value = "";
-  els.photoLinkInput.value = "";
-  els.notesInput.value = "";
-  persistState();
-}
-
-function addManualItem() {
-  const item = makeItem();
-  finalizeItem(item);
-  prependRow(item);
-  clearPerItemFields();
-  if (state.autosave) {
-    postItem(item);
-  }
-}
-
-function finalizeItem(item) {
-  const reviewReasons = [];
-  if (!item.itemName) reviewReasons.push("Missing name");
-  if (!item.price) reviewReasons.push("Missing price");
-  if (!item.upc && !item.photoLink) reviewReasons.push("Missing UPC/photo");
-
-  item.needsReview = reviewReasons.join("; ");
-  item.status = reviewReasons.length ? "Review" : "Ready";
-  item.confidence = item.confidence || (item.upc ? "UPC captured" : "Manual entry");
-  return item;
 }
 
 async function lookupProduct(upc, raw) {
@@ -473,20 +559,18 @@ async function lookupProduct(upc, raw) {
   for (const code of candidates) {
     const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(
       code
-    )}.json?fields=code,product_name,brands,quantity,image_front_url,categories,categories_tags`;
+    )}.json?fields=code,product_name,brands,quantity,image_front_url`;
     const response = await fetch(url);
     if (!response.ok) continue;
 
     const data = await response.json();
     if (data.status === 1 && data.product) {
-      const product = data.product;
       return {
-        productName: cleanLabel(product.product_name || ""),
-        brand: cleanLabel(product.brands || ""),
-        size: cleanLabel(product.quantity || ""),
-        photoLink: product.image_front_url || "",
-        categories: cleanLabel(product.categories || ""),
-        sourceCode: code
+        productName: cleanLabel(data.product.product_name || ""),
+        brand: cleanLabel(data.product.brands || ""),
+        size: cleanLabel(data.product.quantity || ""),
+        photoLink: data.product.image_front_url || "",
+        source: `Open Food Facts ${code}`
       };
     }
   }
@@ -494,120 +578,179 @@ async function lookupProduct(upc, raw) {
   return null;
 }
 
-function applyLookup(item, lookup) {
-  if (!lookup) {
-    item.lookupSource = "Open Food Facts";
-    item.confidence = "UPC captured";
+function makeReviewRow(overrides = {}) {
+  const createdAt = new Date();
+  return {
+    id: makeId(),
+    batchId: "",
+    createdAt: createdAt.toISOString(),
+    createdTime: createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    entryType: "Manual",
+    photoFile: "",
+    shelfPosition: "",
+    itemName: "",
+    correctedItemName: "",
+    size: "",
+    correctedSize: "",
+    price: "",
+    upc: "",
+    category: cleanLabel(els.categoryInput.value),
+    status: "Needs Review",
+    imageLink: "",
+    photoFileUrl: "",
+    confidence: "",
+    parserModel: PARSER_MODEL,
+    notes: "",
+    storeName: state.settings.storeName,
+    ...overrides
+  };
+}
+
+function prependRow(row) {
+  state.rows.unshift(row);
+  state.rows = state.rows.slice(0, 500);
+  renderRows();
+  persistState();
+}
+
+function updateRow(row) {
+  const index = state.rows.findIndex((candidate) => candidate.id === row.id);
+  if (index >= 0) state.rows[index] = row;
+  renderRows();
+  persistState();
+}
+
+function renderRows() {
+  els.feedBody.innerHTML = "";
+  els.itemCount.textContent = `${state.rows.length} ${state.rows.length === 1 ? "row" : "rows"}`;
+
+  if (!state.rows.length) {
+    const empty = document.createElement("tr");
+    empty.className = "empty-row";
+    empty.innerHTML = `<td colspan="5">No rows yet</td>`;
+    els.feedBody.appendChild(empty);
     return;
   }
 
-  if (!item.itemName && lookup.productName) item.itemName = lookup.productName;
-  if (!item.brand && lookup.brand) item.brand = lookup.brand;
-  if (!item.size && lookup.size) item.size = lookup.size;
-  if (!item.photoLink && lookup.photoLink) item.photoLink = lookup.photoLink;
-  item.lookupSource = `Open Food Facts ${lookup.sourceCode || ""}`.trim();
-  item.confidence = lookup.productName ? "Product match" : "Partial match";
-
-  if (!item.category && lookup.categories) {
-    const firstCategory = lookup.categories.split(",").map(cleanLabel).find(Boolean);
-    if (firstCategory) item.category = firstCategory;
-  }
+  state.rows.forEach((row) => {
+    const statusClass = row.status === "Queued" || row.status === "Ready" ? "ok" : row.status === "Failed" ? "error" : "review";
+    const itemText = row.itemName || row.correctedItemName || row.batchId || "Details needed";
+    const meta = [row.size || row.correctedSize, row.upc].filter(Boolean).join(" · ");
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(row.createdTime || formatTime(row.createdAt))}</td>
+      <td>${escapeHtml(row.entryType)}</td>
+      <td class="item-cell">
+        <span class="item-name">${escapeHtml(itemText)}</span>
+        <span class="item-meta">${escapeHtml(meta)}</span>
+      </td>
+      <td>${escapeHtml(row.category || "")}</td>
+      <td><span class="row-status ${statusClass}">${escapeHtml(row.status)}</span></td>
+    `;
+    els.feedBody.appendChild(tr);
+  });
 }
 
-async function postItem(item) {
+async function postReviewEntry(row) {
+  await postWorkflow({
+    action: "reviewEntry",
+    entry: toReviewPayload(row),
+    item: toCatalogPayload(row)
+  });
+}
+
+async function postWorkflow(payload) {
   if (!state.settings.webhookUrl) {
     setStatus(els.sheetStatus, "Sheet not connected", "neutral");
     return;
   }
 
-  const payload = {
+  const body = {
     secret: state.settings.secret,
     storeName: state.settings.storeName,
-    item: toSheetPayload(item)
+    parserModel: PARSER_MODEL,
+    ...payload
   };
 
   try {
     await fetch(state.settings.webhookUrl, {
       method: "POST",
       mode: "no-cors",
-      body: JSON.stringify(payload)
+      body: JSON.stringify(body)
     });
     setStatus(els.sheetStatus, "Sent to sheet", "sent");
+    setStatus(els.workflowStatus, "Queued", "ready");
   } catch (error) {
     setStatus(els.sheetStatus, "Sheet error", "error");
-    item.status = "Sheet error";
-    item.notes = joinNotes(item.notes, shortError(error));
-    updateRow(item);
+    setStatus(els.workflowStatus, shortError(error), "error");
   }
 }
 
-function toSheetPayload(item) {
+function toReviewPayload(row) {
   return {
-    itemName: item.itemName,
-    itemPrice: item.price,
-    upc: item.upc,
-    upcCode: item.upc,
-    imageLink: item.photoLink,
-    photoLink: item.photoLink,
-    category: item.category
+    id: row.id,
+    batchId: row.batchId,
+    createdAt: row.createdAt,
+    entryType: row.entryType,
+    photoFile: row.photoFile,
+    shelfPosition: row.shelfPosition,
+    detectedItemName: row.itemName,
+    correctedItemName: row.correctedItemName,
+    detectedSizePackage: row.size,
+    correctedSizePackage: row.correctedSize,
+    itemPrice: row.price,
+    upc: row.upc,
+    category: row.category,
+    status: row.status,
+    imageLink: row.imageLink,
+    photoFileUrl: row.photoFileUrl,
+    confidence: row.confidence,
+    parserModel: row.parserModel || PARSER_MODEL,
+    notes: row.notes,
+    storeName: state.settings.storeName
   };
 }
 
-function prependRow(item) {
-  state.rows.unshift(item);
-  state.rows = state.rows.slice(0, 500);
-  renderRows();
-  persistState();
+function toCatalogPayload(row) {
+  return {
+    itemName: row.correctedItemName || row.itemName || "",
+    itemPrice: row.price || "",
+    upc: row.upc || "",
+    upcCode: row.upc || "",
+    imageLink: row.imageLink || "",
+    photoLink: row.imageLink || "",
+    category: row.category || ""
+  };
 }
 
-function updateRow(item) {
-  const index = state.rows.findIndex((row) => row.id === item.id);
-  if (index >= 0) {
-    state.rows[index] = item;
-  }
-  renderRows();
-}
+function exportReviewCsv() {
+  const csvRows = [
+    reviewHeaders,
+    ...state.rows.slice().reverse().map((row) => [
+      row.entryType,
+      row.photoFile || row.photoFileUrl,
+      row.shelfPosition,
+      row.itemName,
+      row.correctedItemName,
+      row.size,
+      row.correctedSize,
+      row.price,
+      row.upc,
+      row.category,
+      row.status,
+      row.imageLink,
+      row.notes
+    ])
+  ];
 
-function renderRows() {
-  els.feedBody.innerHTML = "";
-  els.itemCount.textContent = `${state.rows.length} ${state.rows.length === 1 ? "item" : "items"}`;
-
-  if (!state.rows.length) {
-    const empty = document.createElement("tr");
-    empty.className = "empty-row";
-    empty.innerHTML = `<td colspan="6">No scans yet</td>`;
-    els.feedBody.appendChild(empty);
-    return;
-  }
-
-  state.rows.forEach((item) => {
-    const tr = document.createElement("tr");
-    const statusClass =
-      item.status === "Ready" ? "ok" : item.status === "Review" || item.status === "Looking up" ? "review" : "error";
-    tr.innerHTML = `
-      <td>${escapeHtml(item.scannedTime || formatTime(item.scannedAt))}</td>
-      <td>${escapeHtml(item.upc || "")}</td>
-      <td class="item-cell">
-        <span class="item-name">${escapeHtml(item.itemName || "Name needed")}</span>
-        <span class="item-meta">${escapeHtml([item.brand, item.size].filter(Boolean).join(" · "))}</span>
-      </td>
-      <td>${escapeHtml([item.category, item.subcategory].filter(Boolean).join(" > "))}</td>
-      <td>${escapeHtml(item.price || "")}</td>
-      <td><span class="row-status ${statusClass}">${escapeHtml(item.status)}</span></td>
-    `;
-    els.feedBody.appendChild(tr);
-  });
-}
-
-function toggleAutosave() {
-  state.autosave = !state.autosave;
-  refreshAutosave();
-  persistState();
-}
-
-function refreshAutosave() {
-  els.autosaveBtn.classList.toggle("active", state.autosave);
-  els.autosaveBtn.setAttribute("aria-pressed", String(state.autosave));
+  const csv = csvRows.map((row) => row.map(csvCell).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `uber-review-queue-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function openSettings() {
@@ -627,6 +770,22 @@ function saveSettingsFromDialog(event) {
   els.settingsDialog.close();
 }
 
+async function sendTestRow() {
+  saveSettingsFromDialog(new Event("submit"));
+  const row = makeReviewRow({
+    entryType: "Manual",
+    itemName: "Connection Test",
+    price: "0.00",
+    upc: "000000000000",
+    category: cleanLabel(els.categoryInput.value) || "Test",
+    status: "Needs Review",
+    confidence: "Connection test",
+    notes: "Catalog builder connection test"
+  });
+  prependRow(row);
+  await postReviewEntry(row);
+}
+
 function refreshSheetStatus() {
   if (state.settings.webhookUrl) {
     setStatus(els.sheetStatus, "Sheet connected", "ready");
@@ -635,25 +794,13 @@ function refreshSheetStatus() {
   }
 }
 
-async function sendTestRow() {
-  saveSettingsFromDialog(new Event("submit"));
-  const testItem = finalizeItem({
-    ...makeItem(),
-    itemName: "Connection Test",
-    price: "0.00",
-    upc: "000000000000",
-    notes: "Scanner connection test"
-  });
-  await postItem(testItem);
-}
-
 function clearFeed() {
   if (!state.rows.length) return;
 
   if (Date.now() < state.clearConfirmUntil) {
     state.rows = [];
     state.clearConfirmUntil = 0;
-    setClearFeedLabel("Clear feed");
+    setClearFeedLabel("Clear local feed");
     renderRows();
     persistState();
     return;
@@ -664,7 +811,7 @@ function clearFeed() {
   window.setTimeout(() => {
     if (Date.now() >= state.clearConfirmUntil) {
       state.clearConfirmUntil = 0;
-      setClearFeedLabel("Clear feed");
+      setClearFeedLabel("Clear local feed");
     }
   }, 4100);
 }
@@ -674,60 +821,32 @@ function setClearFeedLabel(label) {
   if (text) text.textContent = label;
 }
 
-function exportCsv() {
-  const csvRows = [headers, ...state.rows.slice().reverse().map((item) => [
-    item.itemName,
-    item.price,
-    item.upc,
-    item.photoLink,
-    item.category
-  ])];
-
-  const csv = csvRows.map((row) => row.map(csvCell).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `uber-inventory-${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 function toggleVoice() {
-  if (state.voiceActive) {
-    stopVoice();
-  } else {
-    startVoice();
-  }
+  if (state.voiceActive) stopVoice();
+  else startVoice();
 }
 
 function startVoice() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!Recognition) {
-    els.voiceLog.textContent = "Speech recognition is unavailable in this browser";
+    setStatus(els.workflowStatus, "Voice unavailable", "warn");
     return;
   }
 
   state.recognition = state.recognition || new Recognition();
   state.recognition.lang = "en-US";
   state.recognition.continuous = true;
-  state.recognition.interimResults = true;
+  state.recognition.interimResults = false;
 
   state.recognition.onresult = (event) => {
-    let interim = "";
     for (let index = event.resultIndex; index < event.results.length; index += 1) {
       const transcript = event.results[index][0]?.transcript || "";
-      if (event.results[index].isFinal) {
-        applyVoiceCommand(transcript);
-      } else {
-        interim += transcript;
-      }
+      if (event.results[index].isFinal) applyVoiceCommand(transcript);
     }
-    if (interim) els.voiceLog.textContent = interim.trim();
   };
 
   state.recognition.onerror = (event) => {
-    els.voiceLog.textContent = event.error ? `Voice: ${event.error}` : "Voice error";
+    setStatus(els.workflowStatus, event.error ? `Voice: ${event.error}` : "Voice error", "error");
   };
 
   state.recognition.onend = () => {
@@ -747,21 +866,19 @@ function startVoice() {
     state.voiceActive = true;
     state.recognition.start();
     refreshVoiceButton();
-    els.voiceLog.textContent = "Listening";
+    setStatus(els.workflowStatus, "Listening", "ready");
   } catch (error) {
     state.voiceActive = false;
     refreshVoiceButton();
-    els.voiceLog.textContent = shortError(error);
+    setStatus(els.workflowStatus, shortError(error), "error");
   }
 }
 
 function stopVoice() {
   state.voiceActive = false;
-  if (state.recognition) {
-    state.recognition.stop();
-  }
+  if (state.recognition) state.recognition.stop();
   refreshVoiceButton();
-  els.voiceLog.textContent = "Voice idle";
+  setStatus(els.workflowStatus, "Ready", "ready");
 }
 
 function refreshVoiceButton() {
@@ -783,44 +900,40 @@ function applyVoiceCommand(transcript) {
     "change category",
     "set category"
   ]);
-  const newSubcategory = captureCommand(text, ["new subcategory", "new sub category", "set subcategory", "set sub category"]);
-  const subcategory = captureCommand(text, ["subcategory", "sub category"]);
-  const category = captureCommand(text, ["category"], ["subcategory", "sub category"]);
+  const shelf = captureCommand(text, ["shelf", "section", "set shelf", "set section"]);
   const priceText = captureCommand(text, ["price", "set price", "cost"]);
   const name = captureCommand(text, ["item name", "name"]);
+  const size = captureCommand(text, ["size", "package"]);
   const note = captureCommand(text, ["note", "notes"]);
 
-  if (newCategory) setCategory(newCategory, { clearSubcategory: true });
-  else if (category) setCategory(category);
-
-  if (newSubcategory) setSubcategory(newSubcategory);
-  else if (subcategory) setSubcategory(subcategory);
-
+  if (newCategory) els.categoryInput.value = titleCase(newCategory);
+  if (shelf) els.shelfInput.value = titleCase(shelf);
   if (priceText) els.priceInput.value = parseSpokenPrice(priceText) || normalizePrice(priceText);
-  if (name) els.itemNameInput.value = titleCase(name);
-  if (note) els.notesInput.value = raw;
+  if (name) els.manualNameInput.value = titleCase(name);
+  if (size) els.manualSizeInput.value = cleanLabel(size);
+  if (note) {
+    if (state.activeMode === "shelf") els.batchNotesInput.value = raw;
+    else els.manualNotesInput.value = raw;
+  }
 
   if (text.includes("clear price")) els.priceInput.value = "";
-  if (text.includes("clear item") || text.includes("clear name")) els.itemNameInput.value = "";
-  if (text.includes("clear subcategory") || text.includes("clear sub category")) els.subcategoryInput.value = "";
-  if (text === "save" || text.endsWith(" save")) addManualItem();
+  if (text.includes("clear item") || text.includes("clear name")) els.manualNameInput.value = "";
+  if (text === "save" || text.endsWith(" save")) addManualRow();
 
   persistState();
-  els.voiceLog.textContent = newCategory ? `New category: ${els.categoryInput.value}` : raw;
+  setStatus(els.workflowStatus, newCategory ? `Category: ${els.categoryInput.value}` : "Voice updated", "ready");
 }
 
 function captureCommand(text, phrases, blockers = []) {
-  const allBlockers = ["price", "cost", "item name", "name", "note", "notes", "save", ...blockers];
+  const allBlockers = ["price", "cost", "item name", "name", "note", "notes", "save", "size", "package", ...blockers];
   for (const phrase of phrases) {
     const escaped = phrase.replace(/\s+/g, "\\s+");
     const regex = new RegExp(`\\b${escaped}\\b(?:\\s+is|\\s+to|\\s+as)?\\s+(.+)$`, "g");
-    let match = regex.exec(text);
-    while (match && phrase === "category" && /\bsub\s*$/.test(text.slice(0, match.index))) {
-      match = regex.exec(text);
-    }
+    const match = regex.exec(text);
     if (!match) continue;
     let value = match[1].trim();
     for (const blocker of allBlockers) {
+      if (blocker === phrase) continue;
       const blockerRegex = new RegExp(`\\b${blocker.replace(/\s+/g, "\\s+")}\\b`);
       const blockerMatch = value.search(blockerRegex);
       if (blockerMatch > 0) value = value.slice(0, blockerMatch).trim();
@@ -901,11 +1014,7 @@ function wordsToNumber(words) {
 function normalizeBarcode(rawText) {
   const raw = String(rawText || "").replace(/\D/g, "");
   if (!raw) return { raw: "", upc: "" };
-
-  if (raw.length === 13 && raw.startsWith("0")) {
-    return { raw, upc: raw.slice(1), kind: "UPC-A as EAN-13" };
-  }
-
+  if (raw.length === 13 && raw.startsWith("0")) return { raw, upc: raw.slice(1), kind: "UPC-A as EAN-13" };
   return { raw, upc: raw, kind: raw.length === 12 ? "UPC-A" : "Barcode" };
 }
 
@@ -927,10 +1036,19 @@ function titleCase(value) {
   return cleanLabel(value)
     .split(" ")
     .map((word) => {
-      if (/^(UPC|CBD|IPA|RTD|ABV)$/i.test(word)) return word.toUpperCase();
+      if (/^(UPC|CBD|IPA|RTD|ABV|ML|L)$/i.test(word)) return word.toUpperCase();
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     })
     .join(" ");
+}
+
+function safeFileName(value) {
+  const clean = String(value || "photo.jpg").replace(/[^\w.\-]+/g, "-").replace(/-+/g, "-");
+  return clean || "photo.jpg";
+}
+
+function makeId() {
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function setStatus(element, text, kind) {
@@ -953,9 +1071,7 @@ function joinNotes(existing, next) {
 
 function csvCell(value) {
   const text = String(value ?? "");
-  if (/[",\n]/.test(text)) {
-    return `"${text.replace(/"/g, '""')}"`;
-  }
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }
 
