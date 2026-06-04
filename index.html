@@ -65,10 +65,15 @@
           </div>
 
           <div class="photo-actions">
-            <input id="shelfPhotoInput" type="file" accept="image/*" capture="environment" multiple hidden />
-            <button class="button primary" id="choosePhotosBtn" type="button">
+            <input id="takePhotoInput" type="file" accept="image/*" capture="environment" data-source="camera" hidden />
+            <input id="galleryPhotoInput" type="file" accept="image/*" data-source="gallery" multiple hidden />
+            <button class="button primary" id="takePhotoBtn" type="button">
               <i data-lucide="camera"></i>
-              <span>Add photos</span>
+              <span>Take photo</span>
+            </button>
+            <button class="button secondary" id="uploadPhotosBtn" type="button">
+              <i data-lucide="image-up"></i>
+              <span>Upload from gallery</span>
             </button>
             <button class="button quiet" id="clearPhotosBtn" type="button">
               <i data-lucide="eraser"></i>

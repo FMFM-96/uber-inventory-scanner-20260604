@@ -48,8 +48,10 @@ const els = {
   categoryList: document.getElementById("categoryList"),
   modeButtons: Array.from(document.querySelectorAll("[data-mode]")),
   modePanels: Array.from(document.querySelectorAll(".mode-panel")),
-  shelfPhotoInput: document.getElementById("shelfPhotoInput"),
-  choosePhotosBtn: document.getElementById("choosePhotosBtn"),
+  takePhotoInput: document.getElementById("takePhotoInput"),
+  galleryPhotoInput: document.getElementById("galleryPhotoInput"),
+  takePhotoBtn: document.getElementById("takePhotoBtn"),
+  uploadPhotosBtn: document.getElementById("uploadPhotosBtn"),
   clearPhotosBtn: document.getElementById("clearPhotosBtn"),
   photoGrid: document.getElementById("photoGrid"),
   batchNotesInput: document.getElementById("batchNotesInput"),
@@ -123,8 +125,10 @@ function bindEvents() {
   els.priceInput.addEventListener("input", persistState);
   els.batchNotesInput.addEventListener("input", persistState);
 
-  els.choosePhotosBtn.addEventListener("click", () => els.shelfPhotoInput.click());
-  els.shelfPhotoInput.addEventListener("change", addSelectedPhotos);
+  els.takePhotoBtn.addEventListener("click", () => els.takePhotoInput.click());
+  els.uploadPhotosBtn.addEventListener("click", () => els.galleryPhotoInput.click());
+  els.takePhotoInput.addEventListener("change", addSelectedPhotos);
+  els.galleryPhotoInput.addEventListener("change", addSelectedPhotos);
   els.clearPhotosBtn.addEventListener("click", clearPhotos);
   els.submitBatchBtn.addEventListener("click", queueShelfBatch);
 
@@ -255,23 +259,24 @@ function setMode(mode) {
 async function addSelectedPhotos(event) {
   const files = Array.from(event.target.files || []);
   if (!files.length) return;
+  const source = event.target.dataset.source || "gallery";
 
   setStatus(els.workflowStatus, "Preparing photos", "warn");
   for (const file of files) {
     try {
-      const photo = await compressPhoto(file);
+      const photo = await compressPhoto(file, source);
       state.photos.push(photo);
     } catch (error) {
       setStatus(els.workflowStatus, shortError(error), "error");
     }
   }
 
-  els.shelfPhotoInput.value = "";
+  event.target.value = "";
   renderPhotos();
   setStatus(els.workflowStatus, `${state.photos.length} photo${state.photos.length === 1 ? "" : "s"} ready`, "ready");
 }
 
-async function compressPhoto(file) {
+async function compressPhoto(file, source = "gallery") {
   const dataUrl = await readAsDataUrl(file);
   const image = await loadImage(dataUrl);
   const scale = Math.min(1, PHOTO_MAX_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
@@ -291,6 +296,8 @@ async function compressPhoto(file) {
     dataUrl: compressed,
     originalSize: file.size,
     compressedSize: Math.round((compressed.length * 3) / 4),
+    source,
+    sourceLabel: source === "camera" ? "Camera" : "Gallery",
     width,
     height
   };
@@ -332,7 +339,7 @@ function renderPhotos() {
       <img src="${photo.dataUrl}" alt="" />
       <div>
         <strong>${escapeHtml(photo.name)}</strong>
-        <span>${photo.width}x${photo.height}</span>
+        <span>${escapeHtml(photo.sourceLabel || "Photo")} · ${photo.width}x${photo.height}</span>
       </div>
       <button type="button" class="icon-button compact" aria-label="Remove photo" title="Remove photo">
         <i data-lucide="x"></i>
@@ -369,13 +376,14 @@ async function queueShelfBatch() {
     return;
   }
 
-  const batchId = `batch-${new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14)}`;
+  const shelfPosition = cleanLabel(els.shelfInput.value);
+  const batchId = makeBatchId(category, shelfPosition);
   const row = makeReviewRow({
     entryType: "Shelf Photo",
     batchId,
-    itemName: `${state.photos.length} shelf photo${state.photos.length === 1 ? "" : "s"}`,
+    itemName: `${[category, shelfPosition].filter(Boolean).join(" · ")} · ${state.photos.length} shelf photo${state.photos.length === 1 ? "" : "s"}`,
     category,
-    shelfPosition: cleanLabel(els.shelfInput.value),
+    shelfPosition,
     status: "Needs AI Parse",
     confidence: "Queued",
     notes: cleanLabel(els.batchNotesInput.value)
@@ -388,19 +396,20 @@ async function queueShelfBatch() {
     batch: {
       id: batchId,
       category,
-      shelfPosition: cleanLabel(els.shelfInput.value),
+      shelfPosition,
       itemPrice: normalizePrice(els.priceInput.value),
       notes: cleanLabel(els.batchNotesInput.value),
       parserModel: PARSER_MODEL,
       parserMode: "low-detail-first",
-      photos: state.photos.map(({ id, name, mimeType, dataUrl, width, height, compressedSize }) => ({
+      photos: state.photos.map(({ id, name, mimeType, dataUrl, width, height, compressedSize, source }) => ({
         id,
         name,
         mimeType,
         dataUrl,
         width,
         height,
-        compressedSize
+        compressedSize,
+        source
       }))
     }
   });
@@ -1045,6 +1054,23 @@ function titleCase(value) {
 function safeFileName(value) {
   const clean = String(value || "photo.jpg").replace(/[^\w.\-]+/g, "-").replace(/-+/g, "-");
   return clean || "photo.jpg";
+}
+
+function makeBatchId(category, shelfPosition) {
+  const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
+  const categoryPart = batchSlug(category) || "category";
+  const shelfPart = batchSlug(shelfPosition) || "shelf";
+  const uniquePart = makeId().replace(/[^\w]+/g, "").slice(0, 8);
+  return `batch-${categoryPart}-${shelfPart}-${timestamp}-${uniquePart}`;
+}
+
+function batchSlug(value) {
+  return cleanLabel(value)
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 28);
 }
 
 function makeId() {
