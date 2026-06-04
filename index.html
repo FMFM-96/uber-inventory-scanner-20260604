@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f6b4d" />
+    <title>Inventory Scanner</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="title-block">
+          <span class="eyebrow">Uber catalog build</span>
+          <h1>Inventory Scanner</h1>
+        </div>
+        <div class="top-actions">
+          <button class="icon-button" id="settingsBtn" type="button" title="Settings" aria-label="Settings">
+            <i data-lucide="settings"></i>
+          </button>
+          <button class="icon-button" id="exportBtn" type="button" title="Export CSV" aria-label="Export CSV">
+            <i data-lucide="download"></i>
+          </button>
+        </div>
+      </header>
+
+      <main class="scan-layout">
+        <section class="scanner-panel" aria-label="Barcode scanner">
+          <div class="video-shell">
+            <video id="preview" muted playsinline></video>
+            <div class="reticle" aria-hidden="true">
+              <span></span>
+            </div>
+            <div class="camera-message" id="cameraMessage">Camera idle</div>
+          </div>
+
+          <div class="command-row">
+            <button class="button primary" id="startScanBtn" type="button">
+              <i data-lucide="scan-barcode"></i>
+              <span>Scan</span>
+            </button>
+            <button class="button quiet" id="stopScanBtn" type="button">
+              <i data-lucide="square"></i>
+              <span>Stop</span>
+            </button>
+            <button class="button voice" id="voiceBtn" type="button" aria-pressed="false">
+              <i data-lucide="mic"></i>
+              <span>Voice</span>
+            </button>
+            <button class="button toggle active" id="autosaveBtn" type="button" aria-pressed="true">
+              <i data-lucide="send"></i>
+              <span>Auto</span>
+            </button>
+          </div>
+
+          <div class="status-strip">
+            <span class="status-pill ready" id="scannerStatus">Ready</span>
+            <span class="status-pill neutral" id="sheetStatus">Sheet not connected</span>
+          </div>
+        </section>
+
+        <section class="context-panel" aria-label="Item context">
+          <div class="section-heading">
+            <h2>Current Item</h2>
+            <button class="icon-button compact" id="clearCurrentBtn" type="button" title="Clear item fields" aria-label="Clear item fields">
+              <i data-lucide="eraser"></i>
+            </button>
+          </div>
+
+          <div class="field-grid">
+            <label>
+              <span>Category</span>
+              <input id="categoryInput" type="text" list="categoryList" autocomplete="off" placeholder="Beverages" />
+            </label>
+            <label>
+              <span>Subcategory</span>
+              <input id="subcategoryInput" type="text" autocomplete="off" placeholder="Energy drinks" />
+            </label>
+            <label>
+              <span>Price</span>
+              <input id="priceInput" type="text" inputmode="decimal" autocomplete="off" placeholder="$0.00" />
+            </label>
+            <label>
+              <span>Item name</span>
+              <input id="itemNameInput" type="text" autocomplete="off" placeholder="Optional override" />
+            </label>
+            <label class="wide-field">
+              <span>Photo link</span>
+              <input id="photoLinkInput" type="url" autocomplete="off" placeholder="Optional direct image URL" />
+            </label>
+            <label class="wide-field">
+              <span>Notes</span>
+              <input id="notesInput" type="text" autocomplete="off" placeholder="Optional" />
+            </label>
+          </div>
+
+          <datalist id="categoryList"></datalist>
+          <div class="chip-row" id="categoryChips" aria-label="Category shortcuts"></div>
+          <div class="chip-row subchips" id="subcategoryChips" aria-label="Subcategory shortcuts"></div>
+
+          <div class="voice-log" id="voiceLog" aria-live="polite">Voice idle</div>
+
+          <div class="manual-actions">
+            <button class="button secondary" id="manualAddBtn" type="button">
+              <i data-lucide="plus"></i>
+              <span>Add item</span>
+            </button>
+            <button class="button quiet" id="clearFeedBtn" type="button">
+              <i data-lucide="trash-2"></i>
+              <span>Clear feed</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="feed-panel" aria-label="Live feed">
+          <div class="section-heading">
+            <h2>Live Feed</h2>
+            <span class="count-pill" id="itemCount">0 items</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>UPC</th>
+                  <th>Item</th>
+                  <th>Category</th>
+                  <th>Price</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="feedBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="settings-dialog" id="settingsDialog">
+      <form method="dialog">
+        <div class="dialog-head">
+          <h2>Sheet Settings</h2>
+          <button class="icon-button compact" value="cancel" type="submit" title="Close" aria-label="Close">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <label>
+          <span>Apps Script Web App URL</span>
+          <input id="webhookUrlInput" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/..." />
+        </label>
+        <label>
+          <span>Shared secret</span>
+          <input id="secretInput" type="text" autocomplete="off" placeholder="Optional but recommended" />
+        </label>
+        <label>
+          <span>Store name</span>
+          <input id="storeNameInput" type="text" autocomplete="off" placeholder="Optional" />
+        </label>
+        <div class="dialog-actions">
+          <button class="button secondary" id="testSheetBtn" type="button">
+            <i data-lucide="plug"></i>
+            <span>Test</span>
+          </button>
+          <button class="button primary" id="saveSettingsBtn" value="default" type="submit">
+            <i data-lucide="save"></i>
+            <span>Save</span>
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
